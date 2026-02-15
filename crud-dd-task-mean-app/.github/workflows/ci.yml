@@ -1,11 +1,10 @@
-name: MEAN Stack CI/CD
+name: MEAN App CI/CD
 
-# Trigger workflow on push or pull request to master
 on:
   push:
-    branches: [ main ]
+    branches: [ master ]
   pull_request:
-    branches: [ main ]
+    branches: [ master ]
 
 jobs:
   build-and-deploy:
@@ -16,47 +15,60 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v3
 
-    # 2️⃣ Setup Node.js
-    - name: Set up Node.js
+    # 2️⃣ Setup Node
+    - name: Setup Node
       uses: actions/setup-node@v3
       with:
         node-version: '18'
 
-    # 3️⃣ Install backend dependencies
-    - name: Install Backend Dependencies
+    # 3️⃣ Backend dependencies & test
+    - name: Install Backend
       working-directory: ./backend
       run: npm install
-
-    # 4️⃣ Run backend tests (optional)
     - name: Run Backend Tests
       working-directory: ./backend
-      run: npm test || echo "No tests found"
+      run: npm test || echo "No tests"
 
-    # 5️⃣ Install frontend dependencies
-    - name: Install Frontend Dependencies
+    # 4️⃣ Frontend dependencies & build
+    - name: Install Frontend
       working-directory: ./frontend
       run: npm install
-
-    # 6️⃣ Build frontend
     - name: Build Frontend
       working-directory: ./frontend
       run: npm run build -- --prod
 
-    # 7️⃣ Build Docker images
+    # 5️⃣ Build Docker images
     - name: Build Docker Images
       run: |
         docker build -t ${{ secrets.DOCKER_HUB_USERNAME }}/my-backend:latest ./backend
         docker build -t ${{ secrets.DOCKER_HUB_USERNAME }}/my-frontend:latest ./frontend
 
-    # 8️⃣ Log in to Docker Hub
-    - name: Login to Docker Hub
+    # 6️⃣ Login to Docker Hub
+    - name: Docker Hub Login
       uses: docker/login-action@v2
       with:
         username: ${{ secrets.DOCKER_HUB_USERNAME }}
         password: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}
 
-    # 9️⃣ Push Docker images to Docker Hub
+    # 7️⃣ Push Docker images
     - name: Push Docker Images
       run: |
         docker push ${{ secrets.DOCKER_HUB_USERNAME }}/my-backend:latest
         docker push ${{ secrets.DOCKER_HUB_USERNAME }}/my-frontend:latest
+
+    # 8️⃣ Deploy on EC2
+    - name: Deploy to EC2
+      uses: appleboy/ssh-action@v0.1.7
+      with:
+        host: ${{ secrets.EC2_HOST }}
+        username: ${{ secrets.EC2_USER }}
+        key: ${{ secrets.EC2_KEY }}
+        script: |
+          docker pull ${{ secrets.DOCKER_HUB_USERNAME }}/my-backend:latest
+          docker pull ${{ secrets.DOCKER_HUB_USERNAME }}/my-frontend:latest
+          docker stop backend_container || true
+          docker stop frontend_container || true
+          docker rm backend_container || true
+          docker rm frontend_container || true
+          docker run -d -p 8080:8080 --name backend_container ${{ secrets.DOCKER_HUB_USERNAME }}/my-backend:latest
+          docker run -d -p 80:80 --name frontend_container ${{ secrets.DOCKER_HUB_USERNAME }}/my-frontend:latest
